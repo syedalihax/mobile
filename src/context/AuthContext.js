@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   authAPI,
@@ -33,6 +34,27 @@ export const AuthProvider = ({ children }) => {
   const loadStoredAuth = async () => {
     try {
       await initApiConfig();
+
+      if (Platform.OS === 'web') {
+        try {
+          await authAPI.refresh();
+          const profileResponse = await authAPI.getProfile();
+          const profile = profileResponse.data.data;
+          setToken('cookie-session');
+          setUser(profile);
+          if (profile.preferences?.themeMode) {
+            setThemeMode(profile.preferences.themeMode);
+          }
+          await AsyncStorage.setItem('@routinecraft_user', JSON.stringify(profile));
+        } catch (e) {
+          await clearAuthTokens();
+          await AsyncStorage.removeItem('@routinecraft_user');
+          setToken(null);
+          setUser(null);
+        }
+        return;
+      }
+
       const storedTokens = await getAuthTokens();
       const storedUser = await AsyncStorage.getItem('@routinecraft_user');
 
@@ -89,7 +111,7 @@ export const AuthProvider = ({ children }) => {
       refreshTokenRotateAt,
     });
 
-    setToken(accessToken);
+    setToken(accessToken || 'cookie-session');
     setUser(userData);
     if (userData.preferences?.themeMode) {
       setThemeMode(userData.preferences.themeMode);
@@ -117,7 +139,7 @@ export const AuthProvider = ({ children }) => {
       refreshTokenRotateAt,
     });
 
-    setToken(accessToken);
+    setToken(accessToken || 'cookie-session');
     setUser(userData);
     if (userData.preferences?.themeMode) {
       setThemeMode(userData.preferences.themeMode);

@@ -6,7 +6,10 @@ import * as SecureStore from 'expo-secure-store';
 // Default backend URL (pre-configured with your machine's Wi-Fi IP for instant mobile connection)
 export const DEFAULT_API_URL = 'http://192.168.100.70:5000/api';
 
-let currentBaseUrl = DEFAULT_API_URL;
+const webApiUrl = Platform.OS === 'web' && typeof window !== 'undefined'
+  ? `${window.location.protocol}//${window.location.hostname}:5000/api`
+  : DEFAULT_API_URL;
+let currentBaseUrl = webApiUrl;
 const AUTH_TOKENS_KEY = '@routinecraft_auth_tokens';
 let memoryAuthTokens = null;
 let refreshPromise = null;
@@ -16,8 +19,10 @@ let unauthorizedHandler = null;
 const api = axios.create({
   baseURL: currentBaseUrl,
   timeout: 10000,
+  withCredentials: Platform.OS === 'web',
   headers: {
     'Content-Type': 'application/json',
+    ...(Platform.OS === 'web' ? { 'X-Auth-Transport': 'cookie' } : {}),
   },
 });
 
@@ -109,8 +114,9 @@ export const setUnauthorizedHandler = (handler) => {
 export const refreshAuthTokens = () => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
+      const cookieAuth = Platform.OS === 'web';
       const currentTokens = await getStoredAuthTokens();
-      if (!currentTokens?.refreshToken) {
+      if (!cookieAuth && !currentTokens?.refreshToken) {
         const error = new Error('Refresh token is unavailable');
         error.response = { status: 401 };
         throw error;
@@ -118,8 +124,15 @@ export const refreshAuthTokens = () => {
 
       const response = await axios.post(
         `${currentBaseUrl}/auth/refresh`,
-        { refreshToken: currentTokens.refreshToken },
-        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+        cookieAuth ? {} : { refreshToken: currentTokens.refreshToken },
+        {
+          timeout: 10000,
+          withCredentials: cookieAuth,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(cookieAuth ? { 'X-Auth-Transport': 'cookie' } : {}),
+          },
+        }
       );
       const tokens = response.data.data;
       await saveAuthTokens(tokens);
@@ -149,6 +162,21 @@ api.interceptors.request.use(
       if (isPublicAuthRequest(config.url)) return config;
 
       let tokens = await getStoredAuthTokens();
+      if (Platform.OS === 'web') {
+        config.withCredentials = true;
+        config.headers = config.headers || {};
+        config.headers['X-Auth-Transport'] = 'cookie';
+        const accessExpiresAt = new Date(tokens?.accessTokenExpiresAt).getTime();
+        const rotationAt = new Date(tokens?.refreshTokenRotateAt).getTime();
+        if (
+          tokens &&
+          (accessExpiresAt <= Date.now() + 30 * 1000 || rotationAt <= Date.now())
+        ) {
+          await refreshAuthTokens();
+        }
+        return config;
+      }
+
       if (tokens?.accessToken) {
         const expiresAt = new Date(tokens.accessTokenExpiresAt).getTime();
         if (!expiresAt || expiresAt <= Date.now() + 30 * 1000) {

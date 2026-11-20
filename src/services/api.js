@@ -156,6 +156,11 @@ export const refreshAuthTokens = () => {
 const isPublicAuthRequest = (url = '') =>
   /\/auth\/(login|register|refresh)(\?|$)/.test(url);
 
+const createIdempotencyKey = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+};
+
 // Refresh shortly before expiry and attach the latest access token.
 api.interceptors.request.use(
   async (config) => {
@@ -163,6 +168,15 @@ api.interceptors.request.use(
       if (isPublicAuthRequest(config.url)) return config;
 
       let tokens = await getStoredAuthTokens();
+      const mutatingMethod = ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase());
+      if (
+        mutatingMethod &&
+        /\/(categories|logs)(\/|\?|$)/.test(config.url || '')
+      ) {
+        config.headers = config.headers || {};
+        config.headers['Idempotency-Key'] ||= createIdempotencyKey();
+      }
+
       if (Platform.OS === 'web') {
         config.withCredentials = true;
         config.headers = config.headers || {};

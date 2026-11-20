@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 // Default backend URL (pre-configured with your machine's Wi-Fi IP for instant mobile connection)
-export const DEFAULT_API_URL = 'http://192.168.100.70:5000/api';
+export const DEFAULT_API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.100.70:5000/api';
 
 const webApiUrl = Platform.OS === 'web' && typeof window !== 'undefined'
   ? `${window.location.protocol}//${window.location.hostname}:5000/api`
